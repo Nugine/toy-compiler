@@ -1,4 +1,5 @@
 mod source_file;
+mod span;
 
 use crate::source_file::SourceFile;
 
