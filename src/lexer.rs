@@ -61,9 +61,7 @@ impl Lexer {
                                 state = 4; // -> 4: ident
                                 continue 'dfa;
                             }
-                            '[' | ']' | '(' | ')' | '{' | '}' | '~' | '?' | ':' | ';' | '.'
-                            | ',' | '+' | '-' | '*' | '%' | '&' | '^' | '!' | '|' | '<' | '>'
-                            | '=' => {
+                            _ if PUNCTUATOR_LEN1_TABLE.contains(&ch_ahead) => {
                                 state = 5; // -> 5: punctuator
                                 continue 'dfa;
                             }
@@ -128,17 +126,16 @@ impl Lexer {
                                 }
                             },
                         },
-                        '[' | ']' | '(' | ')' | '{' | '}' | '~' | '?' | ':' | ';' | ',' | '+'
-                        | '-' | '*' | '%' | '&' | '^' | '!' | '|' | '<' | '>' | '=' => {
-                            state = 5; // -> 5: punctuator
-                            continue 'dfa;
-                        }
                         '"' => {
                             state = 6; // -> 6: string literal
                             continue 'dfa;
                         }
                         '0'..='9' | '\'' => {
                             state = 7; // -> 7: constant
+                            continue 'dfa;
+                        }
+                        _ if PUNCTUATOR_LEN1_TABLE.contains(&ch_ahead) => {
+                            state = 5; // -> 5: punctuator
                             continue 'dfa;
                         }
                         _ => {
@@ -259,6 +256,14 @@ impl Lexer {
         }
     }
 
+    #[must_use]
+    fn save_start_pos<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let start_pos = self.start_pos;
+        let ans = f(self);
+        self.start_pos = start_pos;
+        ans
+    }
+
     fn error_unexpected_char(&self, ch: char) -> SynError {
         self.emit_error(format!("unexpected char: {:?}", ch))
     }
@@ -308,7 +313,7 @@ impl Lexer {
             },
         };
 
-        let ident = self.expect_ident()?;
+        let ident = self.save_start_pos(|this| this.expect_ident())?;
 
         match self.chars.next() {
             None | Some('\n') => {
@@ -333,6 +338,7 @@ impl Lexer {
                 '\r' => {
                     if self.chars.peek() == Some('\n') {
                         self.chars.consume1();
+                        break;
                     }
                 }
                 _ => args.push(ch),
@@ -394,7 +400,7 @@ impl Lexer {
         match self.chars.next() {
             None => return Err(self.error_expected("string literal")),
             Some(ch) => match ch {
-                '\"' => self.start_pos = self.chars.pos(),
+                '"' => self.start_pos = self.chars.pos(),
                 _ => return Err(self.error_unexpected_char(ch)),
             },
         }
@@ -404,21 +410,23 @@ impl Lexer {
             match self.chars.next() {
                 None => return Err(self.emit_error("unclosed string literal".into())),
                 Some(ch) => match ch {
-                    '"' => break,
+                    '"' | '\n' => break,
                     '\\' => match self.chars.next() {
                         None => break,
                         Some(ch) => literal.push(ch),
                     },
+
                     _ => literal.push(ch),
                 },
             }
         }
 
         let mut value = String::new();
-        let mut chars = literal.chars();
-        while let Some(ch) = self.chars.next() {
+        let mut literal_chars = literal.chars();
+        while let Some(ch) = literal_chars.next() {
             match ch {
-                '\\' => match chars.next() {
+                '\n' => return Err(self.emit_error("unclosed string literal".into())),
+                '\\' => match literal_chars.next() {
                     None => return Err(self.error_expected("escape sequence")),
                     Some(ch) => {
                         match SIMPLE_ESCAPE_SEQUENCE_TABLE
@@ -454,16 +462,16 @@ impl Lexer {
 
         let (ch1, ch2) = match (ch, ch_ahead) {
             (None, _) => return Err(self.error_expected("punctuator")),
-            (Some(ch), None) => match ch {
-                '[' | ']' | '(' | ')' | '{' | '}' | '~' | '?' | ':' | ';' | '.' | ',' | '+'
-                | '-' | '*' | '/' | '%' | '&' | '^' | '!' | '|' | '<' | '>' | '=' => {
+            (Some(ch), None) => {
+                if PUNCTUATOR_LEN1_TABLE.contains(&ch) {
                     return Ok(Punctuator {
                         literal: ch.into(),
                         span: self.emit_span(),
-                    })
+                    });
+                } else {
+                    return Err(self.error_unexpected_char(ch));
                 }
-                _ => return Err(self.error_unexpected_char(ch)),
-            },
+            }
             (Some(ch), Some(ch_ahead)) => (ch, ch_ahead),
         };
 
@@ -497,7 +505,7 @@ impl Lexer {
             }
         }
 
-        if let '+' | '-' | '*' | '%' | '&' | '^' | '!' | '|' | '<' | '>' | '=' = ch1 {
+        if PUNCTUATOR_LEN1_TABLE.contains(&ch1) {
             return Ok(Punctuator {
                 literal: ch1.into(),
                 span: self.emit_span(),
@@ -532,11 +540,11 @@ impl Lexer {
                     };
                 }
                 let value;
-                let mut chars = literal.chars();
-                match chars.next() {
+                let mut literal_chars = literal.chars();
+                match literal_chars.next() {
                     None => return Err(self.emit_error("empty char constant".into())),
                     Some(ch) => match ch {
-                        '\\' => match chars.next() {
+                        '\\' => match literal_chars.next() {
                             None => return Err(self.error_expected("escape sequence")),
                             Some(ch) => {
                                 match SIMPLE_ESCAPE_SEQUENCE_TABLE
@@ -558,7 +566,7 @@ impl Lexer {
                         _ => return Err(self.emit_error("non-ascii char constant".into())),
                     },
                 }
-                if chars.next().is_some() {
+                if literal_chars.next().is_some() {
                     return Err(self.emit_error("multiple chars in char constant".into()));
                 }
                 let token = CharConstant {
@@ -569,7 +577,7 @@ impl Lexer {
             }
 
             '.' | '0'..='9' => {
-                let mut literal = String::new();
+                let mut literal: String = ch_leading.into();
 
                 let mut has_dot = false;
                 while let Some(ch_ahead) = self.chars.peek() {

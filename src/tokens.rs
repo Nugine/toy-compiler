@@ -176,6 +176,11 @@ pub static INTEGER_SUFFIX_TABLE: [&str; 22] = [
     "llu", "LLu", "lU", "LU", "llU", "LLU",
 ];
 
+pub static PUNCTUATOR_LEN1_TABLE: [char; 24] = [
+    '[', ']', '(', ')', '{', '}', '~', '?', ':', ';', '.', ',', '+', '-', '*', '/', '%', '&', '^',
+    '!', '|', '<', '>', '=',
+];
+
 impl IntegerConstant {
     pub fn validate(literal: String, span: Span) -> Result<Self, String> {
         let mut chars = literal.chars();

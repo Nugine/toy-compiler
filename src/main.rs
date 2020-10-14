@@ -4,6 +4,7 @@ pub mod lexer;
 pub mod source_file;
 pub mod span;
 pub mod tokens;
+pub mod utils;
 
 use std::env;
 use std::fmt;
@@ -39,32 +40,11 @@ fn exit_on_error<T, E: fmt::Display>(result: Result<T, E>) -> T {
     }
 }
 
-fn number_width(n: usize) -> usize {
-    if n < 10 {
-        1
-    } else {
-        ((n as f64).log10() as usize) + 1
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_number_width() {
-        assert_eq!(number_width(0), 1);
-        assert_eq!(number_width(9), 1);
-        assert_eq!(number_width(10), 2);
-        assert_eq!(number_width(100), 3);
-        assert_eq!(number_width(1000), 4);
-        assert_eq!(number_width(10000), 5);
-    }
-}
-
 use crate::errors::SynError;
 use crate::lexer::Lexer;
 use crate::source_file::SourceFile;
 use crate::tokens::Token;
+use crate::utils::number_width;
 
 fn print_token(token: &Token) {
     match token {
@@ -167,9 +147,58 @@ fn eprint_error_span(error: &SynError, src_lines: &[Vec<char>]) {
         );
         eprintln!("{}", line_str);
         eprintln!("{}", indicator);
-        eprintln!();
     } else {
-        // todo?
+        let start_line_str = src_lines[start_lc.line - 1]
+            .iter()
+            .copied()
+            .collect::<String>();
+        let end_line_str = src_lines[end_lc.line - 1]
+            .iter()
+            .copied()
+            .collect::<String>();
+
+        let start_indicator = start_line_str
+            .chars()
+            .enumerate()
+            .map(|(i, ch)| {
+                let col = i + 1;
+                if col >= start_lc.column {
+                    '^'
+                } else if ch == '\t' {
+                    '\t'
+                } else {
+                    ' '
+                }
+            })
+            .collect::<String>();
+
+        let end_indicator = end_line_str
+            .chars()
+            .enumerate()
+            .map(|(i, ch)| {
+                let col = i + 1;
+                if col < end_lc.column {
+                    '^'
+                } else if ch == '\t' {
+                    '\t'
+                } else {
+                    ' '
+                }
+            })
+            .collect::<String>();
+
+        eprintln!(
+            " --> starts at {}:{}:{}",
+            error.span.file_path, start_lc.line, start_lc.column
+        );
+        eprintln!("{}", start_line_str);
+        eprintln!("{}", start_indicator);
+        eprintln!(
+            " --> ends at {}:{}:{}",
+            error.span.file_path, end_lc.line, end_lc.column
+        );
+        eprintln!("{}", end_line_str);
+        eprintln!("{}", end_indicator);
     }
 }
 
@@ -191,6 +220,7 @@ fn main() {
             let line = line.iter().copied().collect::<String>();
             println!("{:>width$}| {}", lineno, line, width = lineno_width);
         }
+        println!();
     }
 
     let lexer = Lexer::from_src(source_file);
@@ -204,11 +234,11 @@ fn main() {
 
     if !errors.is_empty() {
         eprintln!();
-    }
-
-    for error in &errors {
-        eprintln!("error: {}", error.msg);
-        eprint_error_span(error, &src_lines);
-        eprintln!();
+        for error in &errors {
+            eprintln!("error: {}", error.msg);
+            eprint_error_span(error, &src_lines);
+            eprintln!();
+        }
+        process::exit(1);
     }
 }
