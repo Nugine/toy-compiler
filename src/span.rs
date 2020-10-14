@@ -14,20 +14,27 @@ pub struct Span {
     pub file_path: Rc<str>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pos {
     pub byte_pos: usize,
-    pub lc_pos: LineColumn,
+    pub lineno: usize,
+    pub column: usize,
 }
 
 impl Pos {
+    pub fn new(byte_pos: usize, lineno: usize, column: usize) -> Self {
+        Pos {
+            byte_pos,
+            lineno,
+            column,
+        }
+    }
+
     pub fn add1(self) -> Self {
         Self {
             byte_pos: self.byte_pos + 1,
-            lc_pos: LineColumn {
-                line: self.lc_pos.line,
-                column: self.lc_pos.column + 1,
-            },
+            lineno: self.lineno,
+            column: self.column + 1,
         }
     }
 }
