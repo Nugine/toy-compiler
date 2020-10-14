@@ -25,15 +25,19 @@ impl CharStream {
         }
     }
 
-    pub fn cur(&self) -> char {
+    pub fn cur(&self) -> Option<char> {
         if self.idx == 0 {
-            panic!("no current char")
+            return None;
         }
-        self.content[self.idx - 1]
+        Some(self.content[self.idx - 1])
     }
 
     pub fn peek(&self) -> Option<char> {
         self.content.get(self.idx).copied()
+    }
+
+    pub fn peek2(&self) -> Option<char> {
+        self.content.get(self.idx + 1).copied()
     }
 
     pub fn next_char(&mut self) -> Option<char> {
@@ -88,18 +92,21 @@ mod tests {
     fn char_stream() {
         {
             let mut chars = dummy_char_stream("");
-            assert_eq!(chars.next(), None)
+            assert_eq!(chars.cur(), None);
+            assert_eq!(chars.next(), None);
         }
         {
             let mut chars = dummy_char_stream("12");
+            assert_eq!(chars.cur(), None);
+
             assert_eq!(chars.peek(), Some('1'));
             assert_eq!(chars.next(), Some('1'));
-            assert_eq!(chars.cur(), '1');
+            assert_eq!(chars.cur(), Some('1'));
             assert_eq!(chars.pos(), Pos::new(0, 1, 1));
 
             assert_eq!(chars.peek(), Some('2'));
             assert_eq!(chars.next(), Some('2'));
-            assert_eq!(chars.cur(), '2');
+            assert_eq!(chars.cur(), Some('2'));
             assert_eq!(chars.pos(), Pos::new(1, 1, 2));
 
             assert_eq!(chars.next(), None);
@@ -107,19 +114,21 @@ mod tests {
         }
         {
             let mut chars = dummy_char_stream("1\n2");
+            assert_eq!(chars.cur(), None);
+
             assert_eq!(chars.peek(), Some('1'));
             assert_eq!(chars.next(), Some('1'));
-            assert_eq!(chars.cur(), '1');
+            assert_eq!(chars.cur(), Some('1'));
             assert_eq!(chars.pos(), Pos::new(0, 1, 1));
 
             assert_eq!(chars.peek(), Some('\n'));
             assert_eq!(chars.next(), Some('\n'));
-            assert_eq!(chars.cur(), '\n');
+            assert_eq!(chars.cur(), Some('\n'));
             assert_eq!(chars.pos(), Pos::new(1, 1, 2));
 
             assert_eq!(chars.peek(), Some('2'));
             assert_eq!(chars.next(), Some('2'));
-            assert_eq!(chars.cur(), '2');
+            assert_eq!(chars.cur(), Some('2'));
             assert_eq!(chars.pos(), Pos::new(2, 2, 1));
 
             assert_eq!(chars.next(), None);
@@ -127,14 +136,16 @@ mod tests {
         }
         {
             let mut chars = dummy_char_stream("好，很有精神");
+            assert_eq!(chars.cur(), None);
+
             assert_eq!(chars.peek(), Some('好'));
             assert_eq!(chars.next(), Some('好'));
-            assert_eq!(chars.cur(), '好');
+            assert_eq!(chars.cur(), Some('好'));
             assert_eq!(chars.pos(), Pos::new(0, 1, 1));
 
             assert_eq!(chars.peek(), Some('，'));
             assert_eq!(chars.next(), Some('，'));
-            assert_eq!(chars.cur(), '，');
+            assert_eq!(chars.cur(), Some('，'));
             assert_eq!(chars.pos(), Pos::new(3, 1, 2));
 
             assert_eq!(chars.next(), Some('很'));

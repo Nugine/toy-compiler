@@ -41,12 +41,12 @@ impl Lexer {
                                 state = 2; // -> 2: directive
                                 continue 'dfa;
                             }
-                            '/' => match self.chars.peek() {
+                            '/' => match self.chars.peek2() {
                                 None => {
                                     state = 5; // -> 5: punctuator
                                     continue 'dfa;
                                 }
-                                Some(ch_ahead) => match ch_ahead {
+                                Some(ch_ahead2) => match ch_ahead2 {
                                     '/' | '*' => {
                                         state = 3; // -> 3: comment
                                         continue 'dfa;
@@ -59,6 +59,14 @@ impl Lexer {
                             },
                             'A'..='Z' | 'a'..='z' | '_' => {
                                 state = 4; // -> 4: ident
+                                continue 'dfa;
+                            }
+                            '"' => {
+                                state = 6; // -> 6: string literal
+                                continue 'dfa;
+                            }
+                            '0'..='9' => {
+                                state = 7; // -> 7: constant
                                 continue 'dfa;
                             }
                             _ if PUNCTUATOR_LEN1_TABLE.contains(&ch_ahead) => {
