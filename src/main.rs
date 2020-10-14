@@ -1,10 +1,9 @@
-mod char_stream;
-mod errors;
-mod source_file;
-mod span;
-mod tokens;
-
-use crate::source_file::SourceFile;
+pub mod char_stream;
+pub mod errors;
+pub mod lexer;
+pub mod source_file;
+pub mod span;
+pub mod tokens;
 
 use std::env;
 use std::fmt;
@@ -62,6 +61,118 @@ mod tests {
     }
 }
 
+use crate::errors::SynError;
+use crate::lexer::Lexer;
+use crate::source_file::SourceFile;
+use crate::tokens::Token;
+
+fn print_token(token: &Token) {
+    match token {
+        Token::Identifier(ident) => {
+            println!("(Identifier, {:?})", ident.value);
+        }
+        Token::Keyword(keyword) => {
+            println!("(Keyword, {:?})", keyword.value);
+        }
+        Token::Constant(constant) => match constant {
+            tokens::Constant::Int(int) => {
+                println!("(IntegerConstant, {:?})", int.literal);
+            }
+            tokens::Constant::Float(float) => {
+                println!("(FloatConstant, {:?})", float.literal);
+            }
+            tokens::Constant::Char(ch) => {
+                println!("(CharConstant, {:?})", ch.value as char);
+            }
+        },
+        Token::StringLiteral(s) => {
+            println!("(StringLiteral, {:?})", s.value);
+        }
+        Token::Punctuator(punc) => {
+            println!("(Punctuator, {:?})", punc.literal);
+        }
+        Token::Operator(op) => {
+            println!("(Operator, {:?})", op.literal);
+        }
+        Token::Directive(directive) => {
+            println!("(Directive, {:?}, {:?})", directive.name, directive.args);
+        }
+    }
+}
+
+fn print_token_span(token: &Token, src_lines: &[Vec<char>]) {
+    let span = token.span();
+    let start_lc = span.lc_range.start;
+    let end_lc = span.lc_range.end;
+    if start_lc.line == end_lc.line {
+        let line_str = src_lines[&start_lc.line - 1]
+            .iter()
+            .copied()
+            .collect::<String>();
+
+        let indicator = line_str
+            .chars()
+            .enumerate()
+            .map(|(i, ch)| {
+                let col = i + 1;
+                if col >= start_lc.column && col < end_lc.column {
+                    '^'
+                } else if ch == '\t' {
+                    '\t'
+                } else {
+                    ' '
+                }
+            })
+            .collect::<String>();
+
+        println!(
+            " --> {}:{}:{}",
+            span.file_path, start_lc.line, start_lc.column
+        );
+        println!("{}", line_str);
+        println!("{}", indicator);
+    } else {
+        // todo?
+    }
+}
+
+fn eprint_error_span(error: &SynError, src_lines: &[Vec<char>]) {
+    let start_lc = error.span.lc_range.start;
+    let end_lc = error.span.lc_range.end;
+
+    if start_lc.line == end_lc.line {
+        let line_str = src_lines[&start_lc.line - 1]
+            .iter()
+            .copied()
+            .collect::<String>();
+
+        let indicator = line_str
+            .chars()
+            .enumerate()
+            .map(|(i, ch)| {
+                let col = i + 1;
+                if col >= start_lc.column && col < end_lc.column {
+                    '^'
+                } else if ch == '\t' {
+                    '\t'
+                } else {
+                    ' '
+                }
+            })
+            .collect::<String>();
+
+        eprintln!(
+            " --> {}:{}:{}",
+            error.span.file_path, start_lc.line, start_lc.column
+        );
+        eprintln!("{}", line_str);
+        eprintln!("{}", indicator);
+        eprintln!();
+    } else {
+        // todo?
+    }
+}
+
 fn main() {
     let args = exit_on_error(parse_args());
 
@@ -82,5 +193,22 @@ fn main() {
         }
     }
 
-    println!("Hello, world!");
+    let lexer = Lexer::from_src(source_file);
+    let (tokens, errors) = lexer.resolve();
+
+    for token in &tokens {
+        print_token(token);
+        print_token_span(token, &src_lines);
+        println!();
+    }
+
+    if !errors.is_empty() {
+        eprintln!();
+    }
+
+    for error in &errors {
+        eprintln!("error: {}", error.msg);
+        eprint_error_span(error, &src_lines);
+        eprintln!();
+    }
 }

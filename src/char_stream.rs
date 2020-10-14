@@ -1,8 +1,4 @@
-use crate::{
-    errors::SynError,
-    source_file::SourceFile,
-    span::{LineColumn, Pos, Span},
-};
+use crate::{source_file::SourceFile, span::Pos};
 
 use std::rc::Rc;
 
@@ -40,7 +36,7 @@ impl CharStream {
         self.content.get(self.idx).copied()
     }
 
-    pub fn next(&mut self) -> Option<char> {
+    pub fn next_char(&mut self) -> Option<char> {
         if self.idx > 0 {
             let cur = self.content.get(self.idx - 1).copied()?;
             let char_len = cur.len_utf8();
@@ -56,6 +52,10 @@ impl CharStream {
         Some(ch)
     }
 
+    pub fn consume1(&mut self) -> char {
+        self.next().unwrap()
+    }
+
     pub fn pos(&self) -> Pos {
         Pos {
             byte_pos: self.byte_pos,
@@ -66,6 +66,13 @@ impl CharStream {
 
     pub fn file_path(&self) -> &Rc<str> {
         &self.file_path
+    }
+}
+
+impl Iterator for CharStream {
+    type Item = char;
+    fn next(&mut self) -> Option<char> {
+        self.next_char()
     }
 }
 
