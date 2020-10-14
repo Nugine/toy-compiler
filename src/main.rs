@@ -2,6 +2,7 @@ mod char_stream;
 mod errors;
 mod source_file;
 mod span;
+mod tokens;
 
 use crate::source_file::SourceFile;
 
