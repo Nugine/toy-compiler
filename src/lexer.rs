@@ -4,22 +4,20 @@ use crate::{
 
 pub struct Lexer {
     chars: CharStream,
-    tokens: Vec<Token>,
-    errors: Vec<SynError>,
-    start_pos: Pos,
 }
 
 impl Lexer {
     pub fn from_src(src: SourceFile) -> Self {
         Self {
             chars: CharStream::new(src),
-            tokens: Vec::new(),
-            errors: Vec::new(),
-            start_pos: Pos::new(0, 1, 0),
         }
     }
 
     pub fn resolve(mut self) -> (Vec<Token>, Vec<SynError>) {
+        let mut tokens: Vec<Token> = Vec::new();
+        let mut errors: Vec<SynError> = Vec::new();
+        let mut start_pos;
+
         let mut state = 0;
 
         'dfa: loop {
@@ -75,8 +73,8 @@ impl Lexer {
                             }
                             _ => {
                                 let ch = self.chars.consume1();
-                                self.start_pos = self.chars.pos();
-                                self.errors.push(self.error_unexpected_char(ch));
+                                start_pos = self.chars.pos();
+                                errors.push(self.error_unexpected_char(ch, start_pos));
                             }
                         }
                     }
@@ -148,16 +146,16 @@ impl Lexer {
                         }
                         _ => {
                             let ch = self.chars.consume1();
-                            self.start_pos = self.chars.pos();
-                            self.errors.push(self.error_unexpected_char(ch));
+                            start_pos = self.chars.pos();
+                            errors.push(self.error_unexpected_char(ch, start_pos));
                         }
                     },
                 },
                 // 2: directive
                 2 => {
                     match self.expect_directive() {
-                        Ok(t) => self.tokens.push(Token::Directive(t)),
-                        Err(e) => self.errors.push(e),
+                        Ok(t) => tokens.push(Token::Directive(t)),
+                        Err(e) => errors.push(e),
                     }
                     state = 0; // -> 0: line start
                     continue 'dfa;
@@ -166,7 +164,7 @@ impl Lexer {
                 3 => {
                     match self.expect_comment() {
                         Ok(()) => {}
-                        Err(e) => self.errors.push(e),
+                        Err(e) => errors.push(e),
                     }
                     state = 1; // -> 1: line body
                     continue 'dfa;
@@ -176,15 +174,15 @@ impl Lexer {
                     match self.expect_ident() {
                         Ok(t) => {
                             if t.is_keyword() {
-                                self.tokens.push(Token::Keyword(Keyword {
+                                tokens.push(Token::Keyword(Keyword {
                                     value: t.value,
                                     span: t.span,
                                 }))
                             } else {
-                                self.tokens.push(Token::Identifier(t))
+                                tokens.push(Token::Identifier(t))
                             }
                         }
-                        Err(e) => self.errors.push(e),
+                        Err(e) => errors.push(e),
                     }
                     state = 1; // -> 1: line body
                     continue 'dfa;
@@ -194,15 +192,15 @@ impl Lexer {
                     match self.expect_punctuator() {
                         Ok(t) => {
                             if t.is_operator() {
-                                self.tokens.push(Token::Operator(Operator {
+                                tokens.push(Token::Operator(Operator {
                                     literal: t.literal,
                                     span: t.span,
                                 }))
                             } else {
-                                self.tokens.push(Token::Punctuator(t))
+                                tokens.push(Token::Punctuator(t))
                             }
                         }
-                        Err(e) => self.errors.push(e),
+                        Err(e) => errors.push(e),
                     }
                     state = 1; // -> 1: line body
                     continue 'dfa;
@@ -210,8 +208,8 @@ impl Lexer {
                 // 6: string literal
                 6 => {
                     match self.expect_string_literal() {
-                        Ok(t) => self.tokens.push(Token::StringLiteral(t)),
-                        Err(e) => self.errors.push(e),
+                        Ok(t) => tokens.push(Token::StringLiteral(t)),
+                        Err(e) => errors.push(e),
                     }
                     state = 1; // -> 1: line body
                     continue 'dfa;
@@ -219,14 +217,14 @@ impl Lexer {
                 // 7: constant
                 7 => {
                     match self.expect_constant() {
-                        Ok(t) => self.tokens.push(Token::Constant(t)),
-                        Err(e) => self.errors.push(e),
+                        Ok(t) => tokens.push(Token::Constant(t)),
+                        Err(e) => errors.push(e),
                     }
                     state = 1; // -> 1: line body
                     continue 'dfa;
                 }
                 // 255: end
-                255 => return (self.tokens, self.errors),
+                255 => return (tokens, errors),
                 _ => unreachable!(),
             }
         }
@@ -235,9 +233,8 @@ impl Lexer {
 
 impl Lexer {
     #[must_use]
-    fn emit_span(&self) -> Span {
+    fn emit_span(&self, start_pos: Pos) -> Span {
         let end_pos = self.chars.pos().add1();
-        let start_pos = self.start_pos;
 
         let start_lc = LineColumn {
             line: start_pos.lineno,
@@ -257,40 +254,31 @@ impl Lexer {
     }
 
     #[must_use]
-    fn emit_error(&self, msg: String) -> SynError {
+    fn emit_error(&self, msg: String, start_pos: Pos) -> SynError {
         SynError {
-            span: self.emit_span(),
+            span: self.emit_span(start_pos),
             msg,
         }
     }
 
-    #[must_use]
-    fn save_start_pos<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        let start_pos = self.start_pos;
-        let ans = f(self);
-        self.start_pos = start_pos;
-        ans
+    fn error_unexpected_char(&self, ch: char, start_pos: Pos) -> SynError {
+        self.emit_error(format!("unexpected char: {:?}", ch), start_pos)
     }
 
-    fn error_unexpected_char(&self, ch: char) -> SynError {
-        self.emit_error(format!("unexpected char: {:?}", ch))
-    }
-
-    fn error_expected(&self, which: &str) -> SynError {
-        self.emit_error(format!("expected {}", which))
+    fn error_expected(&self, which: &str, start_pos: Pos) -> SynError {
+        self.emit_error(format!("expected {}", which), start_pos)
     }
 }
 
 impl Lexer {
     fn expect_ident(&mut self) -> Result<Identifier, SynError> {
+        let start_pos = self.chars.pos().add1();
+
         let mut literal: String = match self.chars.next() {
-            None => return Err(self.error_expected("identifier")),
+            None => return Err(self.error_expected("identifier", start_pos)),
             Some(ch) => match ch {
-                'A'..='Z' | 'a'..='z' | '_' => {
-                    self.start_pos = self.chars.pos();
-                    ch.into()
-                }
-                _ => return Err(self.error_unexpected_char(ch)),
+                'A'..='Z' | 'a'..='z' | '_' => ch.into(),
+                _ => return Err(self.error_unexpected_char(ch, start_pos)),
             },
         };
 
@@ -308,34 +296,36 @@ impl Lexer {
 
         Ok(Identifier {
             value: literal,
-            span: self.emit_span(),
+            span: self.emit_span(start_pos),
         })
     }
 
     fn expect_directive(&mut self) -> Result<Directive, SynError> {
+        let start_pos = self.chars.pos().add1();
+
         match self.chars.next() {
-            None => return Err(self.error_expected("directive")),
+            None => return Err(self.error_expected("directive", start_pos)),
             Some(ch) => match ch {
-                '#' => self.start_pos = self.chars.pos(),
-                _ => return Err(self.error_unexpected_char(ch)),
+                '#' => {}
+                _ => return Err(self.error_unexpected_char(ch, start_pos)),
             },
         };
 
-        let ident = self.save_start_pos(|this| this.expect_ident())?;
+        let ident = self.expect_ident()?;
 
         match self.chars.next() {
             None | Some('\n') => {
                 return Ok(Directive {
                     name: ident.value,
                     args: "".into(),
-                    span: self.emit_span(),
+                    span: self.emit_span(start_pos),
                 })
             }
             Some(ch) => match ch {
                 ' ' | '\r' | '\t' | '\x0C' => {
                     // do nothing
                 }
-                _ => return Err(self.error_unexpected_char(ch)),
+                _ => return Err(self.error_unexpected_char(ch, start_pos)),
             },
         }
 
@@ -356,25 +346,27 @@ impl Lexer {
         Ok(Directive {
             name: ident.value,
             args,
-            span: self.emit_span(),
+            span: self.emit_span(start_pos),
         })
     }
 
     fn expect_comment(&mut self) -> Result<(), SynError> {
+        let start_pos = self.chars.pos().add1();
+
         match self.chars.next() {
-            None => return Err(self.error_expected("comment")),
+            None => return Err(self.error_expected("comment", start_pos)),
             Some(ch) => match ch {
-                '/' => self.start_pos = self.chars.pos(),
-                _ => return Err(self.error_unexpected_char(ch)),
+                '/' => {}
+                _ => return Err(self.error_unexpected_char(ch, start_pos)),
             },
         }
 
         let is_line_comment = match self.chars.next() {
-            None => return Err(self.emit_error("expected comment, found '/'".into())),
+            None => return Err(self.emit_error("expected comment, found '/'".into(), start_pos)),
             Some(ch) => match ch {
                 '/' => true,
                 '*' => false,
-                _ => return Err(self.error_unexpected_char(ch)),
+                _ => return Err(self.error_unexpected_char(ch, start_pos)),
             },
         };
 
@@ -391,7 +383,9 @@ impl Lexer {
                 let ch_ahead = self.chars.peek();
 
                 match (ch, ch_ahead) {
-                    (None, _) | (_, None) => return Err(self.emit_error("unclosed comment".into())),
+                    (None, _) | (_, None) => {
+                        return Err(self.emit_error("unclosed comment".into(), start_pos))
+                    }
                     (Some(ch), Some(ch_ahead)) => {
                         if let ('*', '/') = (ch, ch_ahead) {
                             self.chars.consume1();
@@ -405,18 +399,20 @@ impl Lexer {
     }
 
     fn expect_string_literal(&mut self) -> Result<StringLiteral, SynError> {
+        let start_pos = self.chars.pos().add1();
+
         match self.chars.next() {
-            None => return Err(self.error_expected("string literal")),
+            None => return Err(self.error_expected("string literal", start_pos)),
             Some(ch) => match ch {
-                '"' => self.start_pos = self.chars.pos(),
-                _ => return Err(self.error_unexpected_char(ch)),
+                '"' => {}
+                _ => return Err(self.error_unexpected_char(ch, start_pos)),
             },
         }
 
         let mut literal = String::new();
         loop {
             match self.chars.next() {
-                None => return Err(self.emit_error("unclosed string literal".into())),
+                None => return Err(self.emit_error("unclosed string literal".into(), start_pos)),
                 Some(ch) => match ch {
                     '"' | '\n' => break,
                     '\\' => match self.chars.next() {
@@ -433,9 +429,9 @@ impl Lexer {
         let mut literal_chars = literal.chars();
         while let Some(ch) = literal_chars.next() {
             match ch {
-                '\n' => return Err(self.emit_error("unclosed string literal".into())),
+                '\n' => return Err(self.emit_error("unclosed string literal".into(), start_pos)),
                 '\\' => match literal_chars.next() {
-                    None => return Err(self.error_expected("escape sequence")),
+                    None => return Err(self.error_expected("escape sequence", start_pos)),
                     Some(ch) => {
                         match SIMPLE_ESCAPE_SEQUENCE_TABLE
                             .iter()
@@ -443,41 +439,42 @@ impl Lexer {
                             .find(|&(c, _)| c == ch)
                         {
                             None => {
-                                return Err(self.emit_error(format!(
-                                    "invalid escape sequence: {:?}",
-                                    format!("\\{:?}", ch)
-                                )))
+                                return Err(self.emit_error(
+                                    format!("invalid escape sequence: {:?}", format!("\\{:?}", ch)),
+                                    start_pos,
+                                ))
                             }
                             Some((_, v)) => value.push(v),
                         }
                     }
                 },
                 '\u{0}'..='\u{255}' => value.push(ch),
-                _ => return Err(self.emit_error("non-ascii string literal".into())),
+                _ => return Err(self.emit_error("non-ascii string literal".into(), start_pos)),
             }
         }
 
         Ok(StringLiteral {
             value,
-            span: self.emit_span(),
+            span: self.emit_span(start_pos),
         })
     }
 
     fn expect_punctuator(&mut self) -> Result<Punctuator, SynError> {
+        let mut start_pos = self.chars.pos().add1();
+
         let ch = self.chars.next();
-        self.start_pos = self.chars.pos();
         let ch_ahead = self.chars.peek();
 
         let (ch1, ch2) = match (ch, ch_ahead) {
-            (None, _) => return Err(self.error_expected("punctuator")),
+            (None, _) => return Err(self.error_expected("punctuator", start_pos)),
             (Some(ch), None) => {
                 if PUNCTUATOR_LEN1_TABLE.contains(&ch) {
                     return Ok(Punctuator {
                         literal: ch.into(),
-                        span: self.emit_span(),
+                        span: self.emit_span(start_pos),
                     });
                 } else {
-                    return Err(self.error_unexpected_char(ch));
+                    return Err(self.error_unexpected_char(ch, start_pos));
                 }
             }
             (Some(ch), Some(ch_ahead)) => (ch, ch_ahead),
@@ -490,13 +487,13 @@ impl Lexer {
                     self.chars.consume1();
                     return Ok(Punctuator {
                         literal: format!("{}{}=", ch1, ch2),
-                        span: self.emit_span(),
+                        span: self.emit_span(start_pos),
                     });
                 }
                 None | Some(_) => {
                     return Ok(Punctuator {
                         literal: format!("{}{}", ch1, ch2),
-                        span: self.emit_span(),
+                        span: self.emit_span(start_pos),
                     })
                 }
             }
@@ -508,7 +505,7 @@ impl Lexer {
                 self.chars.consume1();
                 return Ok(Punctuator {
                     literal: op.into(),
-                    span: self.emit_span(),
+                    span: self.emit_span(start_pos),
                 });
             }
         }
@@ -516,27 +513,31 @@ impl Lexer {
         if PUNCTUATOR_LEN1_TABLE.contains(&ch1) {
             return Ok(Punctuator {
                 literal: ch1.into(),
-                span: self.emit_span(),
+                span: self.emit_span(start_pos),
             });
         }
 
         self.chars.consume1();
-        Err(self.error_unexpected_char(ch2))
+        start_pos = self.chars.pos();
+        Err(self.error_unexpected_char(ch2, start_pos))
     }
 
     fn expect_constant(&mut self) -> Result<Constant, SynError> {
+        let start_pos = self.chars.pos().add1();
+
         let ch_leading = match self.chars.next() {
-            None => return Err(self.error_expected("constant")),
+            None => return Err(self.error_expected("constant", start_pos)),
             Some(ch) => ch,
         };
-        self.start_pos = self.chars.pos();
 
         match ch_leading {
             '\'' => {
                 let mut literal = String::new();
                 loop {
                     match self.chars.next() {
-                        None => return Err(self.emit_error("unclosed char constant".into())),
+                        None => {
+                            return Err(self.emit_error("unclosed char constant".into(), start_pos))
+                        }
                         Some(ch) => match ch {
                             '\'' => break,
                             '\\' => match self.chars.next() {
@@ -550,10 +551,10 @@ impl Lexer {
                 let value;
                 let mut literal_chars = literal.chars();
                 match literal_chars.next() {
-                    None => return Err(self.emit_error("empty char constant".into())),
+                    None => return Err(self.emit_error("empty char constant".into(), start_pos)),
                     Some(ch) => match ch {
                         '\\' => match literal_chars.next() {
-                            None => return Err(self.error_expected("escape sequence")),
+                            None => return Err(self.error_expected("escape sequence", start_pos)),
                             Some(ch) => {
                                 match SIMPLE_ESCAPE_SEQUENCE_TABLE
                                     .iter()
@@ -561,25 +562,32 @@ impl Lexer {
                                     .find(|&(c, _)| c == ch)
                                 {
                                     None => {
-                                        return Err(self.emit_error(format!(
-                                            "invalid escape sequence: {:?}",
-                                            format!("\\{:?}", ch)
-                                        )))
+                                        return Err(self.emit_error(
+                                            format!(
+                                                "invalid escape sequence: {:?}",
+                                                format!("\\{:?}", ch)
+                                            ),
+                                            start_pos,
+                                        ))
                                     }
                                     Some((_, v)) => value = v,
                                 }
                             }
                         },
                         '\u{0}'..='\u{255}' => value = ch,
-                        _ => return Err(self.emit_error("non-ascii char constant".into())),
+                        _ => {
+                            return Err(self.emit_error("non-ascii char constant".into(), start_pos))
+                        }
                     },
                 }
                 if literal_chars.next().is_some() {
-                    return Err(self.emit_error("multiple chars in char constant".into()));
+                    return Err(
+                        self.emit_error("multiple chars in char constant".into(), start_pos)
+                    );
                 }
                 let token = CharConstant {
                     value,
-                    span: self.emit_span(),
+                    span: self.emit_span(start_pos),
                 };
                 Ok(Constant::Char(token))
             }
@@ -609,18 +617,18 @@ impl Lexer {
                         _ => break,
                     }
                 }
-                let span = self.emit_span();
+                let span = self.emit_span(start_pos);
                 if has_dot {
                     FloatConstant::validate(literal, span)
-                        .map_err(|msg| self.emit_error(msg))
+                        .map_err(|msg| self.emit_error(msg, start_pos))
                         .map(Constant::Float)
                 } else {
                     IntegerConstant::validate(literal, span)
-                        .map_err(|msg| self.emit_error(msg))
+                        .map_err(|msg| self.emit_error(msg, start_pos))
                         .map(Constant::Int)
                 }
             }
-            _ => Err(self.error_unexpected_char(ch_leading)),
+            _ => Err(self.error_unexpected_char(ch_leading, start_pos)),
         }
     }
 }
