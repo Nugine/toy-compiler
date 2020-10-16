@@ -272,7 +272,7 @@ impl Lexer {
 
 impl Lexer {
     fn expect_ident(&mut self) -> Result<Identifier, SynError> {
-        let start_pos = self.chars.pos().add1();
+        let mut start_pos = self.chars.pos().add1();
 
         let mut literal: String = match self.chars.next() {
             None => return Err(self.error_expected("identifier", start_pos)),
@@ -281,6 +281,8 @@ impl Lexer {
                 _ => return Err(self.error_unexpected_char(ch, start_pos)),
             },
         };
+
+        start_pos = self.chars.pos();
 
         while let Some(ch_ahead) = self.chars.peek() {
             match ch_ahead {
@@ -301,7 +303,7 @@ impl Lexer {
     }
 
     fn expect_directive(&mut self) -> Result<Directive, SynError> {
-        let start_pos = self.chars.pos().add1();
+        let mut start_pos = self.chars.pos().add1();
 
         match self.chars.next() {
             None => return Err(self.error_expected("directive", start_pos)),
@@ -310,6 +312,8 @@ impl Lexer {
                 _ => return Err(self.error_unexpected_char(ch, start_pos)),
             },
         };
+
+        start_pos = self.chars.pos();
 
         let ident = self.expect_ident()?;
 
@@ -351,7 +355,7 @@ impl Lexer {
     }
 
     fn expect_comment(&mut self) -> Result<(), SynError> {
-        let start_pos = self.chars.pos().add1();
+        let mut start_pos = self.chars.pos().add1();
 
         match self.chars.next() {
             None => return Err(self.error_expected("comment", start_pos)),
@@ -360,6 +364,8 @@ impl Lexer {
                 _ => return Err(self.error_unexpected_char(ch, start_pos)),
             },
         }
+
+        start_pos = self.chars.pos();
 
         let is_line_comment = match self.chars.next() {
             None => return Err(self.emit_error("expected comment, found '/'".into(), start_pos)),
@@ -399,7 +405,7 @@ impl Lexer {
     }
 
     fn expect_string_literal(&mut self) -> Result<StringLiteral, SynError> {
-        let start_pos = self.chars.pos().add1();
+        let mut start_pos = self.chars.pos().add1();
 
         match self.chars.next() {
             None => return Err(self.error_expected("string literal", start_pos)),
@@ -408,6 +414,8 @@ impl Lexer {
                 _ => return Err(self.error_unexpected_char(ch, start_pos)),
             },
         }
+
+        start_pos = self.chars.pos();
 
         let mut literal = String::new();
         loop {
@@ -468,6 +476,7 @@ impl Lexer {
         let (ch1, ch2) = match (ch, ch_ahead) {
             (None, _) => return Err(self.error_expected("punctuator", start_pos)),
             (Some(ch), None) => {
+                start_pos = self.chars.pos();
                 if PUNCTUATOR_LEN1_TABLE.contains(&ch) {
                     return Ok(Punctuator {
                         literal: ch.into(),
@@ -479,6 +488,8 @@ impl Lexer {
             }
             (Some(ch), Some(ch_ahead)) => (ch, ch_ahead),
         };
+
+        start_pos = self.chars.pos();
 
         if let ('<', '<') | ('>', '>') = (ch1, ch2) {
             self.chars.consume1();
@@ -523,12 +534,14 @@ impl Lexer {
     }
 
     fn expect_constant(&mut self) -> Result<Constant, SynError> {
-        let start_pos = self.chars.pos().add1();
+        let mut start_pos = self.chars.pos().add1();
 
         let ch_leading = match self.chars.next() {
             None => return Err(self.error_expected("constant", start_pos)),
             Some(ch) => ch,
         };
+
+        start_pos = self.chars.pos();
 
         match ch_leading {
             '\'' => {
