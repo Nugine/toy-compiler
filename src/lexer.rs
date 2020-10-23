@@ -456,7 +456,7 @@ impl Lexer {
                         }
                     }
                 },
-                '\u{0}'..='\u{255}' => value.push(ch),
+                '\u{0}'..='\u{127}' => value.push(ch),
                 _ => return Err(self.emit_error("non-ascii string literal".into(), start_pos)),
             }
         }
@@ -587,7 +587,7 @@ impl Lexer {
                                 }
                             }
                         },
-                        '\u{0}'..='\u{255}' => value = ch,
+                        '\u{0}'..='\u{127}' => value = ch,
                         _ => {
                             return Err(self.emit_error("non-ascii char constant".into(), start_pos))
                         }
